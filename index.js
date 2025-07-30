@@ -307,14 +307,32 @@ async function run() {
         // POST Apply Trainer
         app.post("/trainers/apply", async (req, res) => {
             try {
-                const trainerApplication = req.body;
-                trainerApplication.status = "pending"; // default
-                await db.collection("trainers").insertOne(trainerApplication);
-                res.json({ success: true, message: "Trainer application submitted!" });
+                const trainer = req.body;
+
+                // ✅ Save all fields including availableDays and expertise
+                const newTrainer = {
+                    name: trainer.name,
+                    email: trainer.email,
+                    age: Number(trainer.age),
+                    image: trainer.image,
+                    experience: Number(trainer.experience),
+                    details: trainer.details || "",
+                    expertise: Array.isArray(trainer.expertise) ? trainer.expertise : [],
+                    availableDays: Array.isArray(trainer.availableDays) ? trainer.availableDays : [],
+                    availableSlots: Array.isArray(trainer.availableSlots) ? trainer.availableSlots : [],
+                    socials: trainer.socials || { facebook: "", instagram: "", linkedin: "" },
+                    status: trainer.status || "pending",
+                    createdAt: new Date(),
+                };
+
+                const result = await trainersCollection.insertOne(newTrainer);
+                res.json({ success: true, insertedId: result.insertedId });
             } catch (err) {
-                res.status(500).json({ error: "Failed to submit application", details: err });
+                console.error("❌ Failed to apply trainer:", err);
+                res.status(500).json({ error: "Failed to submit application" });
             }
         });
+
 
         // 🟢 Get Trainer Applications by User Email
         app.get("/trainers/applications", async (req, res) => {
@@ -370,9 +388,14 @@ async function run() {
                 await db.collection("trainers").insertOne({
                     name: applicant.name,
                     email: applicant.email,
+                    age: applicant.age,
                     image: applicant.image,
                     experience: applicant.experience,
                     details: applicant.details,
+                    expertise: applicant.expertise || [],
+                    availableDays: applicant.availableDays || [],
+                    availableSlots: applicant.availableSlots || [],
+                    socials: applicant.socials || {},
                     status: "approved",
                     createdAt: new Date()
                 });
@@ -491,7 +514,7 @@ async function run() {
 
 
 
-        
+
         const bookingsCollection = db.collection("bookings");
         // 🟢 Create Booking & Save Payment Info
         app.post("/payments", async (req, res) => {
@@ -515,6 +538,100 @@ async function run() {
                 res.status(500).json({ error: "Failed to save booking/payment" });
             }
         });
+
+
+        app.get("/trainers/by-email/:email", async (req, res) => {
+            const trainer = await db.collection("trainers").findOne({ email: req.params.email });
+            res.json(trainer);
+        });
+
+
+        app.get("/bookings/trainer/:trainerId", async (req, res) => {
+            const bookings = await db.collection("bookings").find({ trainerId: req.params.trainerId }).toArray();
+            res.json(bookings);
+        });
+
+
+
+        app.delete("/trainers/:trainerId/slots", async (req, res) => {
+            const { slot } = req.body;
+            await db.collection("trainers").updateOne(
+                { _id: new ObjectId(req.params.trainerId) },
+                { $pull: { availableSlots: slot } }
+            );
+            res.json({ success: true });
+        });
+
+
+        // GET trainer by email
+        //manage slots
+        app.get('/trainers/email/:email', async (req, res) => {
+            const { email } = req.params;
+            const trainer = await trainersCollection.findOne({ email });
+            if (!trainer) return res.status(404).json({ error: "Trainer not found" });
+            res.json(trainer);
+        });
+
+        // Get trainer by email
+        app.get('/trainers/email/:email', async (req, res) => {
+            try {
+                const { email } = req.params;
+                const trainer = await trainersCollection.findOne({ email });
+
+                if (!trainer) {
+                    return res.status(404).json({ error: "Trainer not found" });
+                }
+
+                res.json(trainer);
+            } catch (err) {
+                console.error("Failed to get trainer by email", err);
+                res.status(500).json({ error: "Internal Server Error" });
+            }
+        });
+
+
+        // 🟢 Add New Slot to Trainer
+        // 🟢 Add Slot to Trainer
+        app.patch("/trainers/:id/add-slot", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const newSlot = req.body;
+
+                const result = await trainersCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $push: { availableSlots: newSlot } }
+                );
+
+                if (result.modifiedCount === 0) return res.status(404).json({ error: "Trainer not found" });
+
+                res.json({ success: true, message: "Slot added successfully" });
+            } catch (err) {
+                console.error("❌ Failed to add slot:", err);
+                res.status(500).json({ error: "Failed to add slot" });
+            }
+        });
+
+        // ✅ Add new slot to trainer
+        app.post("/trainers/:id/slots", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const newSlot = req.body;
+
+                await trainersCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $push: { availableSlots: newSlot } }
+                );
+
+                res.json({ success: true, message: "New slot added successfully" });
+            } catch (err) {
+                res.status(500).json({ error: "Failed to add slot" });
+            }
+        });
+
+
+
+
+
 
 
 
