@@ -364,10 +364,14 @@ async function run() {
         app.patch("/trainers/applications/:id/confirm", async (req, res) => {
             try {
                 const { id } = req.params;
-                const applicant = await trainersCollection.findOne({ _id: new ObjectId(id) });
-                if (!applicant) return res.status(404).json({ error: "Applicant not found" });
 
-                // ✅ Insert into trainers collection
+                // ✅ Find the applicant from applications collection
+                const applicant = await trainersCollection.findOne({ _id: new ObjectId(id) });
+                if (!applicant) {
+                    return res.status(404).json({ error: "Applicant not found" });
+                }
+
+                // ✅ 1. Insert applicant data into trainers collection
                 await db.collection("trainers").insertOne({
                     name: applicant.name,
                     email: applicant.email,
@@ -383,14 +387,30 @@ async function run() {
                     createdAt: new Date()
                 });
 
-                // ✅ Remove from applications
+                // ✅ 2. Update users collection → set role trainer (or insert if doesn't exist)
+                await db.collection("users").updateOne(
+                    { email: applicant.email },
+                    {
+                        $set: {
+                            name: applicant.name,
+                            email: applicant.email,
+                            role: "trainer",
+                            updatedAt: new Date()
+                        }
+                    },
+                    { upsert: true } // 🔹 creates user if not exists
+                );
+
+                // ✅ 3. Remove the application from applications collection
                 await trainersCollection.deleteOne({ _id: new ObjectId(id) });
 
-                res.json({ success: true, message: "Trainer approved and added" });
+                res.json({ success: true, message: "Trainer approved, user role updated, and application removed" });
             } catch (err) {
+                console.error("❌ Error confirming trainer:", err);
                 res.status(500).json({ error: "Failed to confirm trainer" });
             }
         });
+
 
 
         // rejecting
@@ -737,6 +757,78 @@ async function run() {
             } catch (err) {
                 console.error("❌ Failed to fetch booked trainers:", err);
                 res.status(500).json({ error: "Failed to fetch booked trainers" });
+            }
+        });
+
+
+        // ✅ Search User by Name (Case-Insensitive)
+        app.get("/users/search", async (req, res) => {
+            try {
+                const name = req.query.name;
+                if (!name) return res.status(400).json({ error: "Name is required" });
+
+                // Case-insensitive search using regex
+                const users = await db.collection("users")
+                    .find({ name: { $regex: name, $options: "i" } })
+                    .toArray();
+
+                if (users.length === 0) return res.status(404).json({ error: "No users found" });
+
+                res.json(users);
+            } catch (err) {
+                console.error("❌ Error searching users:", err);
+                res.status(500).json({ error: "Failed to search users" });
+            }
+        });
+
+
+        // ✅ Make User Admin
+        app.patch("/users/:email/make-admin", async (req, res) => {
+            try {
+                const { email } = req.params;
+                const result = await db.collection("users").updateOne(
+                    { email },
+                    { $set: { role: "admin", updatedAt: new Date() } }
+                );
+                if (result.matchedCount === 0) return res.status(404).json({ error: "User not found" });
+                res.json({ success: true, message: "User promoted to admin" });
+            } catch (err) {
+                console.error("❌ Error making admin:", err);
+                res.status(500).json({ error: "Failed to update user role" });
+            }
+        });
+
+        // ✅ Remove Admin Role
+        app.patch("/users/:email/remove-admin", async (req, res) => {
+            try {
+                const { email } = req.params;
+                const result = await db.collection("users").updateOne(
+                    { email },
+                    { $set: { role: "user", updatedAt: new Date() } } // or use $unset: { role: "" }
+                );
+                if (result.matchedCount === 0) return res.status(404).json({ error: "User not found" });
+                res.json({ success: true, message: "Admin role removed" });
+            } catch (err) {
+                console.error("❌ Error removing admin role:", err);
+                res.status(500).json({ error: "Failed to remove admin role" });
+            }
+        });
+
+
+        // ✅ Get User Role by Email
+        app.get("/users/role/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+                const user = await db.collection("users").findOne({ email });
+
+                if (!user) {
+                    return res.status(404).json({ error: "User not found" });
+                }
+
+                res.json({ role: user.role || "user" });
+            } catch (err) {
+                console.error("❌ Error fetching user role:", err);
+                res.status(500).json({ error: "Failed to fetch user role" });
             }
         });
 
