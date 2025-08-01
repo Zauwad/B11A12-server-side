@@ -565,29 +565,41 @@ async function run() {
 
         // GET trainer by email
         //manage slots
-        app.get('/trainers/email/:email', async (req, res) => {
-            const { email } = req.params;
-            const trainer = await trainersCollection.findOne({ email });
-            if (!trainer) return res.status(404).json({ error: "Trainer not found" });
-            res.json(trainer);
-        });
-
-        // Get trainer by email
-        app.get('/trainers/email/:email', async (req, res) => {
+        // GET trainer by email
+        app.get("/trainers/email/:email", async (req, res) => {
             try {
-                const { email } = req.params;
-                const trainer = await trainersCollection.findOne({ email });
-
-                if (!trainer) {
-                    return res.status(404).json({ error: "Trainer not found" });
-                }
-
+                const email = req.params.email;
+                const trainer = await db.collection("trainers").findOne({ email });
+                if (!trainer) return res.status(404).json({ error: "Trainer not found" });
                 res.json(trainer);
             } catch (err) {
-                console.error("Failed to get trainer by email", err);
-                res.status(500).json({ error: "Internal Server Error" });
+                res.status(500).json({ error: "Failed to fetch trainer" });
             }
         });
+
+
+        // PATCH remove slot
+        app.patch("/trainers/:id/remove-slot", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { slotIndex } = req.body;
+
+                const trainer = await db.collection("trainers").findOne({ _id: new ObjectId(id) });
+                if (!trainer) return res.status(404).json({ error: "Trainer not found" });
+
+                trainer.availableSlots.splice(slotIndex, 1);
+
+                await db.collection("trainers").updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { availableSlots: trainer.availableSlots } }
+                );
+
+                res.json({ success: true, message: "Slot removed successfully" });
+            } catch (err) {
+                res.status(500).json({ error: "Failed to remove slot" });
+            }
+        });
+
 
 
         // 🟢 Add New Slot to Trainer
@@ -631,9 +643,101 @@ async function run() {
 
 
 
+        // POST new forum post
+        app.post("/forum", async (req, res) => {
+            try {
+                const post = req.body;
+                await db.collection("forum").insertOne(post);
+                res.json({ success: true, message: "Forum post added!" });
+            } catch (err) {
+                res.status(500).json({ error: "Failed to add forum post" });
+            }
+        });
 
 
 
+        // GET trainer applications (pending/rejected only)
+        // ✅ NEW API: Get all pending or rejected trainer applications (admin view)
+        app.get("/trainers/applications/status/filter", async (req, res) => {
+            try {
+                const applications = await db.collection("trainers").find(
+                    { status: { $in: ["pending", "rejected"] } }
+                ).sort({ createdAt: -1 }).toArray();
+
+                res.json(applications);
+            } catch (err) {
+                console.error("❌ Failed to fetch filtered applications:", err);
+                res.status(500).json({ error: "Failed to fetch filtered trainer applications" });
+            }
+        });
+
+
+
+
+        // 🟢 POST Review
+        const reviewsCollection = db.collection("reviews");
+
+        app.post("/reviews", async (req, res) => {
+            try {
+                const review = req.body;
+                review.createdAt = new Date();
+                await reviewsCollection.insertOne(review);
+                res.json({ success: true, message: "Review submitted successfully" });
+            } catch (err) {
+                res.status(500).json({ error: "Failed to submit review" });
+            }
+        });
+
+        // 🟢 GET Reviews by Trainer ID (for testimonials)
+        app.get("/reviews/trainer/:trainerId", async (req, res) => {
+            try {
+                const reviews = await reviewsCollection.find({ trainerId: req.params.trainerId }).toArray();
+                res.json(reviews);
+            } catch (err) {
+                res.status(500).json({ error: "Failed to fetch reviews" });
+            }
+        });
+
+
+
+        // 🟢 Get all booked trainers by user email
+        app.get("/bookings/user/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                // ✅ Find all bookings for this user
+                const bookings = await bookingsCollection
+                    .find({ userEmail: email, status: "success" })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                if (bookings.length === 0) {
+                    return res.json([]);
+                }
+
+                // ✅ Extract trainer IDs
+                const trainerIds = bookings.map((b) => new ObjectId(b.trainerId));
+
+                // ✅ Fetch trainer details
+                const trainers = await db.collection("trainers")
+                    .find({ _id: { $in: trainerIds } })
+                    .toArray();
+
+                // ✅ Merge trainer details with bookings
+                const mergedData = bookings.map((booking) => {
+                    const trainerInfo = trainers.find((t) => t._id.toString() === booking.trainerId);
+                    return {
+                        ...booking,
+                        trainerDetails: trainerInfo || null,
+                    };
+                });
+
+                res.json(mergedData);
+            } catch (err) {
+                console.error("❌ Failed to fetch booked trainers:", err);
+                res.status(500).json({ error: "Failed to fetch booked trainers" });
+            }
+        });
 
 
 
