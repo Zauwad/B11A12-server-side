@@ -138,18 +138,23 @@ async function run() {
             }
         });
 
-        // ✅ API to Get All Classes with Pagination
+        // ✅ API to Get All Classes with Pagination & Search
         app.get("/classes", async (req, res) => {
             try {
                 const page = parseInt(req.query.page) || 1;
                 const limit = parseInt(req.query.limit) || 6;
                 const skip = (page - 1) * limit;
+                const search = req.query.search || ""; // 🔹 Get search keyword from query
 
-                const totalClasses = await classesCollection.countDocuments();
+                const query = search
+                    ? { name: { $regex: search, $options: "i" } } // 🔹 Case-insensitive search
+                    : {};
+
+                const totalClasses = await classesCollection.countDocuments(query);
 
                 const classes = await classesCollection
-                    .find()
-                    .sort({ createdAt: -1 }) // newest first
+                    .find(query)
+                    .sort({ createdAt: -1 })
                     .skip(skip)
                     .limit(limit)
                     .toArray();
@@ -161,37 +166,15 @@ async function run() {
                     totalClasses,
                 });
             } catch (err) {
-                res.status(500).json({ error: "Failed to fetch classes", details: err });
+                console.error("❌ Error fetching classes:", err);
+                res.status(500).json({ error: "Failed to fetch classes", details: err.message });
             }
         });
+
 
         // top six for feautured section
         // 📌 Get Top 6 Most Booked Classes// ✅ API to Get All Classes with Pagination
-        app.get("/classes", async (req, res) => {
-            try {
-                const page = parseInt(req.query.page) || 1;
-                const limit = parseInt(req.query.limit) || 6;
-                const skip = (page - 1) * limit;
 
-                const totalClasses = await classesCollection.countDocuments();
-
-                const classes = await classesCollection
-                    .find()
-                    .sort({ createdAt: -1 }) // newest first
-                    .skip(skip)
-                    .limit(limit)
-                    .toArray();
-
-                res.json({
-                    data: classes,
-                    currentPage: page,
-                    totalPages: Math.ceil(totalClasses / limit),
-                    totalClasses,
-                });
-            } catch (err) {
-                res.status(500).json({ error: "Failed to fetch classes", details: err });
-            }
-        });
 
         app.get("/classes/featured", async (req, res) => {
             try {
@@ -697,6 +680,24 @@ async function run() {
                 res.status(500).json({ error: "Failed to fetch reviews" });
             }
         });
+
+        // 🟢 Get All Reviews (for testimonials)
+        app.get("/reviews", async (req, res) => {
+            try {
+                const reviewsCollection = db.collection("reviews");
+
+                const reviews = await reviewsCollection
+                    .find()
+                    .sort({ createdAt: -1 }) // ✅ latest first
+                    .toArray();
+
+                res.json(reviews);
+            } catch (err) {
+                console.error("❌ Failed to fetch reviews:", err);
+                res.status(500).json({ error: "Failed to fetch reviews", details: err.message });
+            }
+        });
+
 
 
 
